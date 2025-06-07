@@ -16,7 +16,6 @@ def write_file(datafile,string):
         file.write(string + '\n')
 
 
-from datetime import datetime
 
 def conversion(value, sensor_n, file_name, dt=None):
     press_counts = value[2] + value[1]*256 + value[0]*65536
@@ -51,11 +50,11 @@ def conversion(value, sensor_n, file_name, dt=None):
     #return (pressure,percentage,temperature,temp_counts,press_counts)
         
 def peripheric_pico(address_picos, handle_number, name_cluster, last_time):
+
     print("Connecting...")
-    req = GATTRequester(address_picos)
+    req = GATTRequester(address_picos)#,auto_connect=True)
     req.exchange_mtu(720)
     print("connected ok")
-
     aux = req.read_by_handle(handle_number)[0]
     req.disconnect()
     print("disconnected ok")
@@ -63,30 +62,57 @@ def peripheric_pico(address_picos, handle_number, name_cluster, last_time):
     new_time = time.time()
     dt = new_time - last_time if last_time is not None else 0.0
 
-    aux_tmp1 = aux.decode('utf-8').lstrip('[').rstrip(']')
-    aux_tmp1 = aux_tmp1.split(',')
 
-    length = len(aux_tmp1)
-    cycles = length / 7
-    array_data = [0 for _ in range(length)]
+    #print("aux: {}".format(aux)) 
+    aux_tmp1 = aux.decode('utf-8')
+    if len(aux_tmp1) != 0:
+        '''
+        print("0 aux_tmp1: {}".format(aux_tmp1))
+        print(type(aux_tmp1))
+        print(len(aux_tmp1))
+        '''
 
-    if cycles.is_integer():
-        n = 0
-        open_ch = [k for k in range(0, length, 7)]
-        close_ch = [l for l in range(6, length, 7)]
-        while n < cycles:
-            for j in range(length):
-                if j in open_ch:
-                    aux_tmp1[j] = aux_tmp1[j].replace('(', "")
-                    array_data[j] = int(aux_tmp1[j])
-                elif j in close_ch:
-                    aux_tmp1[j] = aux_tmp1[j].replace(')', "")
-                    array_data[j] = int(aux_tmp1[j])
-                    conversion(array_data[n*7:j+1], array_data[j], name_cluster, dt)
-                    n += 1
-                else:
-                    array_data[j] = int(aux_tmp1[j])
-    return array_data, new_time
+        aux_tmp1 = aux_tmp1.replace(aux_tmp1[0],"",1)#delete first character '['
+        #if aux_tmp1[len(aux_tmp1)-1] != 'e':
+        aux_tmp1 = aux_tmp1[:-1]#delete last character '['
+        '''
+        print("1 aux_tmp1: {}".format(aux_tmp1))
+        print(type(aux_tmp1))
+        print(len(aux_tmp1))
+        '''
+        aux_tmp1 = aux_tmp1.split(',')#
+        '''
+        print("2 split aux_tmp1: {}".format(aux_tmp1))
+        print(type(aux_tmp1))
+        print(len(aux_tmp1))
+        '''
+        #==============
+        length = len(aux_tmp1)
+        cycles = length/7
+        #print("cycles: {}".format(cycles))
+        array_data = [0 for i in range(length)]
+
+        if cycles.is_integer() == True:
+            n = 0
+            open_ch = [k for k in range(0,length,7)]
+            close_ch = [l for l in range(6,length,7)]
+            while n < cycles:
+                for j in range(length):
+                    if j in open_ch:
+                        aux_tmp1[j]=aux_tmp1[j].replace('(',"")#delete first character '('
+                        array_data[j]=int(aux_tmp1[j])
+                    if j in close_ch:
+                        aux_tmp1[j]=aux_tmp1[j].replace(')',"")#delete last character ')'
+                        array_data[j]=int(aux_tmp1[j])
+                        conversion(array_data[n*7:j+1], array_data[j], name_cluster, dt)
+                        n+=1
+                        
+                    array_data[j]=int(aux_tmp1[j])    
+            #print("aux_tmp1: {}".format(aux_tmp1))
+
+        return array_data, new_time
+
+    
 
 
 def main():
@@ -107,7 +133,8 @@ def main():
      # Continuous logging loop
     try:
         while True:
-            aux_data, last_time = peripheric_pico(address_pico, handle_number, name_cluster, last_time)
+            aux_data2, last_time = peripheric_pico(address_pico2,handle_number,name_cluster2, last_time)
+            # aux_data, last_time = peripheric_pico(address_pico, handle_number, name_cluster, last_time)
             time.sleep(0.1)  # Optional delay to avoid hammering the BLE device
     except KeyboardInterrupt:
         print("Logging stopped by user.")
