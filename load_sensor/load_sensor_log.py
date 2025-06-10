@@ -28,7 +28,7 @@ def initialize_h5(filename):
     if 'force_timestamp' not in h5f:
         h5f.create_dataset('force_timestamp', (0,), maxshape=(None,), dtype='f8')
     if 'force_value' not in h5f:
-        h5f.create_dataset('force_value', (0,), maxshape=(None,), dtype='f4')
+        h5f.create_dataset('force_value', (0,), maxshape=(None,), dtype='f8')
     return h5f
 
 def log_force_reading(h5f, timestamp, value):
