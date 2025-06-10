@@ -6,19 +6,13 @@ import h5py
 from gattlib import GATTRequester
 from calypso_anemometer.core import CalypsoDeviceApi, CalypsoDeviceDataRate
 
-# Toggle this to True if you want to print all data to screen
-PRINT_DATA = True
-
-# BLE address for pressure sensor
+# ========== CONFIG ==========
+PRINT_TO_SCREEN = True  # Set to False to disable screen printing
 PICO_PRESSURE_ADDR = "28:CD:C1:13:1E:48"
-
-# Pressure sensor characteristic handle
 PRESSURE_HANDLE = 0x09
-
-# HDF5 filename
 HDF5_FILENAME = "merged_sensor_data.h5"
+# ============================
 
-# Process and store pressure sensor data
 def conversion_h5(value, sensor_n, dt, h5f):
     press_counts = value[2] + value[1]*256 + value[0]*65536
     temp_counts = value[5] + value[4]*256 + value[3]*65536
@@ -32,9 +26,6 @@ def conversion_h5(value, sensor_n, dt, h5f):
     temperature = (temp_counts * 200 / 16777215) - 50
     timestamp = time.time()
 
-    if PRINT_DATA:
-        print(f"[Pressure] Time: {timestamp:.2f} | Pressure: {pressure:.4f} | Temp: {temperature:.2f}°C | %: {percentage:.2f}")
-
     for k, v in zip([
         'pressure_timestamp', 'pressure_value', 'pressure_percentage', 'pressure_temperature',
         'pressure_counts', 'temp_counts', 'pressure_dt', 'sensor_n'
@@ -44,7 +35,10 @@ def conversion_h5(value, sensor_n, dt, h5f):
         h5f[k].resize((h5f[k].shape[0] + 1,))
         h5f[k][-1] = v
 
-# Connect and read pressure data from Pico using gattlib
+    if PRINT_TO_SCREEN:
+        print(f"[PRESSURE] {datetime.fromtimestamp(timestamp).strftime('%H:%M:%S')} | "
+              f"Pressure: {pressure:.3f} bar | Temp: {temperature:.2f}°C | Sensor: {sensor_n}")
+
 def log_pressure_sensor(h5f, last_time):
     try:
         req = GATTRequester(PICO_PRESSURE_ADDR)
@@ -83,7 +77,6 @@ def log_pressure_sensor(h5f, last_time):
 
     return array_data, new_time
 
-# Continuously read wind sensor data and log
 def start_wind_logging(h5f):
     async def wind_logger():
         async with CalypsoDeviceApi() as calypso:
@@ -91,19 +84,28 @@ def start_wind_logging(h5f):
 
             def log_reading(reading):
                 timestamp = time.time()
-                if PRINT_DATA:
-                    print(f"[Wind] Time: {timestamp:.2f} | Speed: {reading.wind_speed:.2f} m/s | Dir: {reading.wind_direction}° | "
-                          f"Temp: {reading.temperature:.2f}°C | Roll: {reading.roll:.1f} | Pitch: {reading.pitch:.1f} | Heading: {reading.heading:.1f}")
+                data = {
+                    'timestamp': timestamp,
+                    'speed': reading.wind_speed,
+                    'direction': reading.wind_direction,
+                    'battery': reading.battery_level,
+                    'temp': reading.temperature,
+                    'roll': reading.roll,
+                    'pitch': reading.pitch,
+                    'heading': reading.heading
+                }
 
                 for key, value in zip([
                     'wind_timestamp', 'wind_speed', 'wind_direction', 'wind_battery',
                     'wind_temp', 'wind_roll', 'wind_pitch', 'wind_heading'
-                ], [
-                    timestamp, reading.wind_speed, reading.wind_direction, reading.battery_level,
-                    reading.temperature, reading.roll, reading.pitch, reading.heading
-                ]):
+                ], data.values()):
                     h5f[key].resize((h5f[key].shape[0] + 1,))
                     h5f[key][-1] = value
+
+                if PRINT_TO_SCREEN:
+                    print(f"[WIND] {datetime.fromtimestamp(timestamp).strftime('%H:%M:%S')} | "
+                          f"Speed: {data['speed']:.2f} m/s | Dir: {data['direction']}° | "
+                          f"Temp: {data['temp']:.1f}°C | Battery: {data['battery']:.1f}%")
 
             await calypso.subscribe_reading(log_reading)
             try:
@@ -114,7 +116,6 @@ def start_wind_logging(h5f):
 
     return wind_logger()
 
-# Create and initialize HDF5 datasets
 def initialize_h5():
     h5f = h5py.File(HDF5_FILENAME, 'a')
     keys = {
@@ -128,7 +129,6 @@ def initialize_h5():
             h5f.create_dataset(k, (0,), maxshape=(None,), dtype=dtype)
     return h5f
 
-# Main loop
 async def main():
     h5f = initialize_h5()
     last_time = time.time()
