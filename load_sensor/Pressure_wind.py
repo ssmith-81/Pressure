@@ -3,6 +3,7 @@ import time
 import h5py
 from gattlib import GATTRequester
 from calypso_anemometer.core import CalypsoDeviceApi, CalypsoDeviceDataRate
+import concurrent.futures
 
 # === SETTINGS ===
 PRINT_LOGS = True  # Set False to disable prints
@@ -81,7 +82,6 @@ def start_wind_logging(h5f, log_duration=60, wind_log_rate=1):
             print(f"[WIND] Starting wind logging for {log_duration}s at {wind_log_rate} Hz")
 
         async with CalypsoDeviceApi() as calypso:
-            # Set data rate (must be one of CalypsoDeviceDataRate)
             rate_enum = {
                 1: CalypsoDeviceDataRate.HZ_1,
                 4: CalypsoDeviceDataRate.HZ_4,
@@ -138,21 +138,23 @@ async def main():
 
     wind_task = asyncio.create_task(start_wind_logging(h5f, log_duration, wind_log_rate))
 
-    start_time = time.time()
-    try:
-        while time.time() - start_time < log_duration:
-            _, last_time = log_pressure_sensor(h5f, last_time)
-            await asyncio.sleep(0.1)
-    except KeyboardInterrupt:
-        print("Logging stopped by user.")
-    finally:
-        wind_task.cancel()
+    loop = asyncio.get_running_loop()
+    with concurrent.futures.ThreadPoolExecutor() as pool:
+        start_time = time.time()
         try:
-            await wind_task
-        except asyncio.CancelledError:
-            pass
-        h5f.close()
-
+            while time.time() - start_time < log_duration:
+                # Run pressure sensor read in executor thread (non-blocking to event loop)
+                _, last_time = await loop.run_in_executor(pool, log_pressure_sensor, h5f, last_time)
+                await asyncio.sleep(0.1)
+        except KeyboardInterrupt:
+            print("Logging stopped by user.")
+        finally:
+            wind_task.cancel()
+            try:
+                await wind_task
+            except asyncio.CancelledError:
+                pass
+            h5f.close()
 
 if __name__ == "__main__":
     asyncio.run(main())
