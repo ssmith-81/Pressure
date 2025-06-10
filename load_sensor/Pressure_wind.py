@@ -6,6 +6,9 @@ import h5py
 from gattlib import GATTRequester
 from calypso_anemometer.core import CalypsoDeviceApi, CalypsoDeviceDataRate
 
+# Toggle this to True if you want to print all data to screen
+PRINT_DATA = True
+
 # BLE address for pressure sensor
 PICO_PRESSURE_ADDR = "28:CD:C1:13:1E:48"
 
@@ -28,6 +31,9 @@ def conversion_h5(value, sensor_n, dt, h5f):
     percentage = (press_counts / 16777215) * 100
     temperature = (temp_counts * 200 / 16777215) - 50
     timestamp = time.time()
+
+    if PRINT_DATA:
+        print(f"[Pressure] Time: {timestamp:.2f} | Pressure: {pressure:.4f} | Temp: {temperature:.2f}°C | %: {percentage:.2f}")
 
     for k, v in zip([
         'pressure_timestamp', 'pressure_value', 'pressure_percentage', 'pressure_temperature',
@@ -85,6 +91,10 @@ def start_wind_logging(h5f):
 
             def log_reading(reading):
                 timestamp = time.time()
+                if PRINT_DATA:
+                    print(f"[Wind] Time: {timestamp:.2f} | Speed: {reading.wind_speed:.2f} m/s | Dir: {reading.wind_direction}° | "
+                          f"Temp: {reading.temperature:.2f}°C | Roll: {reading.roll:.1f} | Pitch: {reading.pitch:.1f} | Heading: {reading.heading:.1f}")
+
                 for key, value in zip([
                     'wind_timestamp', 'wind_speed', 'wind_direction', 'wind_battery',
                     'wind_temp', 'wind_roll', 'wind_pitch', 'wind_heading'
