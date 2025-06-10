@@ -5,7 +5,7 @@ from gattlib import GATTRequester
 from calypso_anemometer.core import CalypsoDeviceApi, CalypsoDeviceDataRate
 
 # === SETTINGS ===
-PRINT_LOGS = True  # Set to False to disable print statements
+PRINT_LOGS = True  # Set False to disable prints
 HDF5_FILENAME = "merged_sensor_data.h5"
 
 # BLE info
@@ -27,7 +27,6 @@ def conversion_h5(value, sensor_n, dt, h5f):
     temperature = (temp_counts * 200 / 16777215) - 50
     timestamp = time.time()
 
-    # Store in HDF5
     for k, v in zip([
         'pressure_timestamp', 'pressure_value', 'pressure_percentage', 'pressure_temperature',
         'pressure_counts', 'temp_counts', 'pressure_dt', 'sensor_n'
@@ -40,7 +39,6 @@ def conversion_h5(value, sensor_n, dt, h5f):
     if PRINT_LOGS:
         print(f"[PRESSURE] {timestamp:.2f}: p={pressure:.3f} bar, temp={temperature:.1f}°C")
 
-
 def log_pressure_sensor(h5f, last_time):
     try:
         req = GATTRequester(PICO_PRESSURE_ADDR)
@@ -48,7 +46,8 @@ def log_pressure_sensor(h5f, last_time):
         aux = req.read_by_handle(PRESSURE_HANDLE)[0]
         req.disconnect()
     except Exception as e:
-        print(f"[ERROR] Pressure read failed: {e}")
+        if PRINT_LOGS:
+            print(f"[ERROR] Pressure read failed: {e}")
         return None, last_time
 
     new_time = time.time()
@@ -76,11 +75,19 @@ def log_pressure_sensor(h5f, last_time):
 
     return aux_tmp1, new_time
 
-
-def start_wind_logging(h5f):
+def start_wind_logging(h5f, log_duration=60, wind_log_rate=1):
     async def wind_logger():
+        if PRINT_LOGS:
+            print(f"[WIND] Starting wind logging for {log_duration}s at {wind_log_rate} Hz")
+
         async with CalypsoDeviceApi() as calypso:
-            await calypso.set_datarate(CalypsoDeviceDataRate.HZ_1)
+            # Set data rate (must be one of CalypsoDeviceDataRate)
+            rate_enum = {
+                1: CalypsoDeviceDataRate.HZ_1,
+                4: CalypsoDeviceDataRate.HZ_4,
+                8: CalypsoDeviceDataRate.HZ_8,
+            }.get(wind_log_rate, CalypsoDeviceDataRate.HZ_1)
+            await calypso.set_datarate(rate_enum)
 
             def log_reading(reading):
                 timestamp = time.time()
@@ -100,13 +107,13 @@ def start_wind_logging(h5f):
             await calypso.subscribe_reading(log_reading)
 
             try:
-                while True:
-                    await asyncio.sleep(1)
+                await asyncio.sleep(log_duration)
             finally:
+                if PRINT_LOGS:
+                    print("[WIND] Unsubscribing from wind sensor readings")
                 await calypso.unsubscribe_reading()
 
-    return wind_logger  # Return function, not coroutine instance
-
+    return wind_logger()
 
 def initialize_h5():
     h5f = h5py.File(HDF5_FILENAME, 'a')
@@ -121,16 +128,19 @@ def initialize_h5():
             h5f.create_dataset(k, (0,), maxshape=(None,), dtype=dtype)
     return h5f
 
-
 async def main():
     h5f = initialize_h5()
     last_time = time.time()
 
-    wind_logger_fn = start_wind_logging(h5f)
-    wind_task = asyncio.create_task(wind_logger_fn())
+    # Configurable params
+    log_duration = 60         # seconds
+    wind_log_rate = 1         # Hz (choose from 1,4,8)
 
+    wind_task = asyncio.create_task(start_wind_logging(h5f, log_duration, wind_log_rate))
+
+    start_time = time.time()
     try:
-        while True:
+        while time.time() - start_time < log_duration:
             _, last_time = log_pressure_sensor(h5f, last_time)
             await asyncio.sleep(0.1)
     except KeyboardInterrupt:
